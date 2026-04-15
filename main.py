@@ -125,6 +125,19 @@ class MACAnalyzer:
                 continue
 
             current_filters = structured_filters.get(size_n)
+
+            if not current_filters:
+                results.append({'id': key, 'status': 'FAIL', 'reason': f"No filters found for size {size_n}"})
+                continue
+            filter_error = False
+            for lbl, f_mat in current_filters.items():
+                if len(f_mat) != size_n or any(len(row) != size_n for row in f_mat):
+                    results.append({'id': key, 'status': 'FAIL', 'reason': f"Filter '{lbl}' size mismatch"})
+                    filter_error = True
+                    break
+            
+            if filter_error:
+                continue
             
             # 성능 측정 (10회 반복)
             times = []
