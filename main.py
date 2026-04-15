@@ -53,12 +53,18 @@ class MACAnalyzer:
 
     # --- 핵심 MAC 연산 (순수 반복문) ---
     def calculate_mac(self, pattern, filter_data):
+        t_start = time.perf_counter()
+        
         size = len(pattern)
         score = 0.0
         for i in range(size):
             for j in range(size):
                 score += pattern[i][j] * filter_data[i][j]
-        return score
+        
+        t_end = time.perf_counter()
+        elapsed_ms = (t_end - t_start) * 1000
+        
+        return score, elapsed_ms
 
     # --- 모드 1: 3x3 사용자 입력 ---
     def run_manual_mode(self):
@@ -67,12 +73,10 @@ class MACAnalyzer:
         filter_b = self.validate_input(3, "필터 B")
         pattern = self.validate_input(3, "입력 패턴")
 
-        start_time = time.perf_counter()
-        score_a = self.calculate_mac(pattern, filter_a)
-        score_b = self.calculate_mac(pattern, filter_b)
-        end_time = time.perf_counter()
-
-        duration_ms = (end_time - start_time) * 1000
+        score_a, time_a = self.calculate_mac(pattern, filter_a)
+        score_b, time_b = self.calculate_mac(pattern, filter_b)
+        
+        duration_ms = time_a + time_b
         
         result = "UNDECIDED"
         if abs(score_a - score_b) < self.epsilon:
@@ -138,16 +142,23 @@ class MACAnalyzer:
             
             if filter_error:
                 continue
-            
+
             # 성능 측정 (10회 반복)
             times = []
             available_labels = list(current_filters.keys())
+            
             for _ in range(10):
-                t0 = time.perf_counter()
-                current_scores = {lbl: self.calculate_mac(input_mat, current_filters[lbl]) 
-                              for lbl in available_labels}
-                t1 = time.perf_counter()
-                times.append((t1 - t0) * 1000)
+                t_total_loop = 0 # 이번 회차의 모든 필터 연산 합계 시간
+                current_scores = {}
+                
+                for lbl in available_labels:
+        # 수정된 함수 호출 (점수와 소요시간을 따로 받음)
+                    score, calc_time = self.calculate_mac(input_mat, current_filters[lbl])
+                    current_scores[lbl] = score
+                    t_total_loop += calc_time # 각 필터별 순수 연산 시간만 합산
+        
+                times.append(t_total_loop)
+            
             
             perf_data.setdefault(size_n, []).extend(times)
 
