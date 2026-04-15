@@ -170,14 +170,32 @@ class MACAnalyzer:
             else:
                 fail_list.append(r)
                 reason = r.get('reason', 'Wrong Decision')
-                print(f"{r['id']:<15} | FAIL ({reason})")
+
+                dec = r.get('dec', 'N/A')
+                exp = r.get('exp', 'N/A')
+                print(f"{r['id']:<15} | FAIL ({reason}) -> Dec: [{dec}] vs Exp: [{exp}]")
+               
+                if 'dec' in r and r['dec'] == "UNDECIDED":
+                    # 1등과 2등 점수 차이를 출력해서 epsilon 범위인지 확인
+                    sorted_s = sorted(r['scores'].items(), key=lambda x: x[1], reverse=True)
+                    diff = sorted_s[0][1] - sorted_s[1][1]
+                    print(f"      [!] Tie detected. Diff: {diff:.12f} (Epsilon: {self.epsilon})")
 
         print("\n[최종 리포트]")
         print(f"전체: {len(results)} / 통과: {pass_count} / 실패: {len(fail_list)}")
         if fail_list:
             print("실패 케이스 목록:")
             for f in fail_list:
-                print(f"- {f['id']}: {f.get('reason', 'Wrong Decision')}")
+                reason = f.get('reason', 'Unknown Error')
+                print(f"- {f['id']}: {reason}")
+
+                if 'dec' in f:
+                    print(f"  [상세] 판정: {f['dec']} / 기대값: {f['exp']}")
+                    if f['dec'] == "UNDECIDED":
+            # 동점인 경우 점수 차이 출력 로직
+                        sorted_s = sorted(f['scores'].items(), key=lambda x: x[1], reverse=True)
+                        diff = sorted_s[0][1] - sorted_s[1][1]
+                        print(f"  [!] 동점 감지 (차이: {diff:.12f})")
 
         # 성능 분석 표
         avg_perfs = [(sz, sum(t_list)/len(t_list)) for sz, t_list in perf_data.items()]
@@ -192,13 +210,19 @@ class MACAnalyzer:
 
     def main(self):
         print("=== MAC 연산 분석기 ===")
-        choice = input("모드 선택 (1: 사용자 입력, 2: JSON 분석): ")
-        if choice == '1':
-            self.run_manual_mode()
-        elif choice == '2':
-            self.run_json_mode()
-        else:
-            print("잘못된 선택입니다.")
+        while True: # 무한 루프 시작
+            choice = input("\n모드 선택 (1: 사용자 입력, 2: JSON 분석): ").strip()
+            
+            if choice == '1':
+                self.run_manual_mode()
+                break  # 올바른 입력을 처리했으므로 루프 탈출
+            elif choice == '2':
+                self.run_json_mode()
+                break  # 올바른 입력을 처리했으므로 루프 탈출
+            else:
+                # 잘못된 입력 시 안내 문구를 출력하고 다시 루프의 처음으로 돌아감
+                print("잘못된 선택입니다. '1' 또는 '2'를 입력해주세요.")
+        
 
 if __name__ == "__main__":
     MACAnalyzer().main()
