@@ -1,0 +1,197 @@
+from cProfile import label
+import json
+import time
+
+class MACAnalyzer:
+    def __init__(self):
+        self.filters = {}  # {size: {'Cross': [[...]], 'X': [[...]]}}
+        self.epsilon = 1e-9
+
+    # --- 유틸리티 및 정규화 ---
+    def normalize_label(self, label):
+        try:
+        # 1. 입력값의 유효성 검사 (None이거나 비어있는 경우)
+            if label is None:
+                return "Unknown"
+
+        # 2. 문자열로 변환 후 전처리 (소문자화, 양끝 공백 제거)
+            clean_label = str(label).lower().strip()
+
+        # 3. 빈 문자열인 경우 예외 처리
+            if not clean_label:
+                return "Unknown"
+
+        # 4. 키워드 기반 정규화 (유연한 매칭)
+        # '+' 기호이거나 'cross'라는 단어가 포함되어 있으면 "Cross"
+            if clean_label == '+' or 'cross' in clean_label:
+                return "Cross"
+        
+        # 'x'라는 단어가 포함되어 있으면 "X" 
+        # (주의: 'cross'에도 'x'가 포함되므로 'cross'를 먼저 검사해야 함)
+            if 'x' in clean_label:
+                return "X"
+
+        # 5. 매칭되는 것이 없으면 전처리된 라벨 그대로 반환
+            return clean_label
+
+        except Exception as e:
+            print(f"[Warning] Label normalization error: {e}")
+            return str(label)
+    def validate_input(self, size, prompt):
+        print(f"{prompt} ({size}x{size})을 입력하세요:")
+        matrix = []
+        while len(matrix) < size:
+            try:
+                line = input(f"{len(matrix) + 1}행: ").split()
+                if len(line) != size:
+                    raise ValueError(f"열 개수 불일치: {size}개의 숫자가 필요합니다.")
+                row = [float(x) for x in line]
+                matrix.append(row)
+            except ValueError as e:
+                print(f"입력 형식 오류: {e} 다시 입력하세요.")
+        return matrix
+
+    # --- 핵심 MAC 연산 (순수 반복문) ---
+    def calculate_mac(self, pattern, filter_data):
+        size = len(pattern)
+        score = 0.0
+        for i in range(size):
+            for j in range(size):
+                score += pattern[i][j] * filter_data[i][j]
+        return score
+
+    # --- 모드 1: 3x3 사용자 입력 ---
+    def run_manual_mode(self):
+        print("\n[모드 1: 3x3 사용자 입력]")
+        filter_a = self.validate_input(3, "필터 A")
+        filter_b = self.validate_input(3, "필터 B")
+        pattern = self.validate_input(3, "입력 패턴")
+
+        start_time = time.perf_counter()
+        score_a = self.calculate_mac(pattern, filter_a)
+        score_b = self.calculate_mac(pattern, filter_b)
+        end_time = time.perf_counter()
+
+        duration_ms = (end_time - start_time) * 1000
+        
+        result = "UNDECIDED"
+        if abs(score_a - score_b) < self.epsilon:
+            result = "판정 불가"
+        elif score_a > score_b:
+            result = "A"
+        else:
+            result = "B"
+
+        print("\n--- 결과 ---")
+        print(f"필터 A 점수: {score_a:.4f} | 필터 B 점수: {score_b:.4f}")
+        print(f"연산 시간: {duration_ms:.6f} ms")
+        print(f"판정 결과: {result}")
+        
+        self.print_performance_table([(3, duration_ms)])
+
+    # --- 모드 2: JSON 분석 ---
+    def run_json_mode(self):
+        print("\n[모드 2: data.json 분석]")
+        try:
+            with open('data.json', 'r') as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            print("오류: data.json 파일이 없습니다.")
+            return
+
+        # 필터 로드 및 정규화
+        raw_filters = data.get('filters', {})
+        structured_filters = {}
+        for key, val in raw_filters.items():
+            size = int(key.split('_')[1])
+            if size not in structured_filters:
+                structured_filters[size] = {}
+            for f_type, f_mat in val.items():
+                norm_type = self.normalize_label(f_type)
+                structured_filters[size][norm_type] = f_mat
+
+        results = []
+        perf_data = {} # {size: [times]}
+
+        patterns = data.get('patterns', {})
+        for key, p_data in patterns.items():
+            size_n = int(key.split('_')[1])
+            input_mat = p_data.get('input')
+            expected = self.normalize_label(p_data.get('expected'))
+            
+            # 검증: 크기 불일치
+            if len(input_mat) != size_n or any(len(row) != size_n for row in input_mat):
+                results.append({'id': key, 'status': 'FAIL', 'reason': f"Size mismatch (Expected {size_n})"})
+                continue
+
+            current_filters = structured_filters.get(size_n)
+            score_cross = 0.0
+            score_x = 0.0
+            
+            # 성능 측정 (10회 반복)
+            times = []
+            for _ in range(10):
+                t0 = time.perf_counter()
+                score_cross = self.calculate_mac(input_mat, current_filters['Cross'])
+                score_x = self.calculate_mac(input_mat, current_filters['X'])
+                t1 = time.perf_counter()
+                times.append((t1 - t0) * 1000)
+            
+            perf_data.setdefault(size_n, []).extend(times)
+
+            # 판정
+            if abs(score_cross - score_x) < self.epsilon:
+                decision = "UNDECIDED"
+            else:
+                decision = "Cross" if score_cross > score_x else "X"
+
+            status = "PASS" if decision == expected else "FAIL"
+            results.append({
+                'id': key, 'cross': score_cross, 'x': score_x, 
+                'dec': decision, 'exp': expected, 'status': status
+            })
+
+        # 결과 출력
+        print(f"{'ID':<15} | {'Cross':<8} | {'X':<8} | {'Decision':<10} | {'Expected':<10} | {'Status'}")
+        print("-" * 80)
+        pass_count = 0
+        fail_list = []
+        for r in results:
+            if r['status'] == 'PASS':
+                pass_count += 1
+                print(f"{r['id']:<15} | {r['cross']:<8.2f} | {r['x']:<8.2f} | {r['dec']:<10} | {r['exp']:<10} | PASS")
+            else:
+                fail_list.append(r)
+                reason = r.get('reason', 'Wrong Decision')
+                print(f"{r['id']:<15} | FAIL ({reason})")
+
+        print("\n[최종 리포트]")
+        print(f"전체: {len(results)} / 통과: {pass_count} / 실패: {len(fail_list)}")
+        if fail_list:
+            print("실패 케이스 목록:")
+            for f in fail_list:
+                print(f"- {f['id']}: {f.get('reason', 'Wrong Decision')}")
+
+        # 성능 분석 표
+        avg_perfs = [(sz, sum(t_list)/len(t_list)) for sz, t_list in perf_data.items()]
+        self.print_performance_table(avg_perfs)
+
+    def print_performance_table(self, perf_list):
+        print("\n[성능 분석 표]")
+        print(f"{'크기(NxN)':<12} | {'평균 시간(ms)':<15} | {'연산 횟수(N²)'}")
+        print("-" * 50)
+        for sz, avg_t in sorted(perf_list):
+            print(f"{sz:<2}x{sz:<9} | {avg_t:<15.6f} | {sz*sz}")
+
+    def main(self):
+        print("=== MAC 연산 분석기 ===")
+        choice = input("모드 선택 (1: 사용자 입력, 2: JSON 분석): ")
+        if choice == '1':
+            self.run_manual_mode()
+        elif choice == '2':
+            self.run_json_mode()
+        else:
+            print("잘못된 선택입니다.")
+
+if __name__ == "__main__":
+    MACAnalyzer().main()
