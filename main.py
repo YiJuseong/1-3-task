@@ -125,41 +125,48 @@ class MACAnalyzer:
                 continue
 
             current_filters = structured_filters.get(size_n)
-            score_cross = 0.0
-            score_x = 0.0
             
             # 성능 측정 (10회 반복)
             times = []
+            available_labels = list(current_filters.keys())
             for _ in range(10):
                 t0 = time.perf_counter()
-                score_cross = self.calculate_mac(input_mat, current_filters['Cross'])
-                score_x = self.calculate_mac(input_mat, current_filters['X'])
+                current_scores = {lbl: self.calculate_mac(input_mat, current_filters[lbl]) 
+                              for lbl in available_labels}
                 t1 = time.perf_counter()
                 times.append((t1 - t0) * 1000)
             
             perf_data.setdefault(size_n, []).extend(times)
 
-            # 판정
-            if abs(score_cross - score_x) < self.epsilon:
+            sorted_scores = sorted(current_scores.items(), key=lambda x: x[1], reverse=True)
+            top_label, top_score = sorted_scores[0]
+
+            second_score = sorted_scores[1][1] if len(sorted_scores) > 1 else 0            # 판정
+            
+            if abs(top_score - second_score) < self.epsilon:
                 decision = "UNDECIDED"
             else:
-                decision = "Cross" if score_cross > score_x else "X"
+                decision = top_label
 
             status = "PASS" if decision == expected else "FAIL"
+            
             results.append({
-                'id': key, 'cross': score_cross, 'x': score_x, 
-                'dec': decision, 'exp': expected, 'status': status
+                'id': key, 'scores': current_scores, 'dec': decision, 
+                'exp': expected, 'status': status
             })
 
         # 결과 출력
-        print(f"{'ID':<15} | {'Cross':<8} | {'X':<8} | {'Decision':<10} | {'Expected':<10} | {'Status'}")
-        print("-" * 80)
+        labels_header = " | ".join([f"{lbl:<8}" for lbl in available_labels])
+        print(f"{'ID':<15} | {labels_header} | {'Decision':<10} | {'Expected':<10} | {'Status'}")
+        print("-" * (45 + len(available_labels) * 11))
+        
         pass_count = 0
         fail_list = []
         for r in results:
             if r['status'] == 'PASS':
                 pass_count += 1
-                print(f"{r['id']:<15} | {r['cross']:<8.2f} | {r['x']:<8.2f} | {r['dec']:<10} | {r['exp']:<10} | PASS")
+                scores_str = " | ".join([f"{r['scores'].get(lbl, 0):<8.2f}" for lbl in available_labels])
+                print(f"{r['id']:<15} | {scores_str} | {r['dec']:<10} | {r['exp']:<10} | PASS")
             else:
                 fail_list.append(r)
                 reason = r.get('reason', 'Wrong Decision')
