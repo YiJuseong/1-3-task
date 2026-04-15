@@ -73,10 +73,14 @@ class MACAnalyzer:
         filter_b = self.validate_input(3, "필터 B")
         pattern = self.validate_input(3, "입력 패턴")
 
-        score_a, time_a = self.calculate_mac(pattern, filter_a)
-        score_b, time_b = self.calculate_mac(pattern, filter_b)
-        
-        duration_ms = time_a + time_b
+        iteration_times = []
+
+        for _ in range(10):
+            score_a, time_a = self.calculate_mac(pattern, filter_a)
+            score_b, time_b = self.calculate_mac(pattern, filter_b)
+            iteration_times.append(time_a + time_b)
+
+        avg_duration_ms = sum(iteration_times) / len(iteration_times)
         
         result = "UNDECIDED"
         if abs(score_a - score_b) < self.epsilon:
@@ -88,10 +92,10 @@ class MACAnalyzer:
 
         print("\n--- 결과 ---")
         print(f"필터 A 점수: {score_a:.4f} | 필터 B 점수: {score_b:.4f}")
-        print(f"연산 시간: {duration_ms:.6f} ms")
+        print(f"연산 시간: {avg_duration_ms:.6f} ms")
         print(f"판정 결과: {result}")
         
-        self.print_performance_table([(3, duration_ms)])
+        self.print_performance_table([(3, avg_duration_ms)])
 
     # --- 모드 2: JSON 분석 ---
     def run_json_mode(self):
